@@ -1,0 +1,14 @@
+matplotlib
+pandas
+pandas_datareader
+yahoofinancials
+numpy
+pyodbc
+papermill
+requests
+sqlalchemy
+openpyxl
+yfinance
+notebook
+jupyter
+ipywidgets

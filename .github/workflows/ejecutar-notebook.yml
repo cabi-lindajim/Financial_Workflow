@@ -1,0 +1,82 @@
+name: Ejecutar scrapper semanal y subir a Azure (SIN timestamp)
+
+on:
+  schedule:
+    # Ejecutar los viernes a las 14:40 hora de Guatemala (20:40 UTC) 
+    - cron: '40 20 * * 5'
+  workflow_dispatch:
+
+jobs:
+  ejecutar-notebook:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Clonar el repositorio
+      uses: actions/checkout@v3
+
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Configurar el entorno con Jupyter
+      run: |
+        python -m pip install --upgrade pip
+        pip install jupyter
+        python -m ipykernel install --user --name=python3 --display-name "Python 3"
+      
+    - name: Instalar dependencias
+      run: |
+        pip install -r requirements.txt
+        pip install azure-storage-blob
+
+    - name: Ejecutar notebook
+      run: |
+        papermill "Financial_Markets_&_Commodities_Scrapper_Weekly.ipynb" "salida.ipynb" -k python3
+
+    - name: Subir archivo a Azure Blob Storage (nombre fijo)
+      env:
+        AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+      run: |
+        python -c "
+        from azure.storage.blob import BlobServiceClient, ContentSettings
+        import os
+        
+        # Configuración
+        connection_string = os.environ['AZURE_STORAGE_CONNECTION_STRING']
+        container_name = 'cabidataanalyticsdev'
+        blob_folder = 'Data_Bases_Documents/Weekly'
+        
+        # NOMBRE FIJO - sin timestamp
+        file_name = 'FinancialMarketsBU.xlsx'
+        
+        # Construir ruta completa
+        blob_name = f'{blob_folder}/{file_name}'
+        
+        print(f'Subiendo archivo a Azure...')
+        print(f'  Contenedor: {container_name}')
+        print(f'  Ruta: {blob_name}')
+        print(f'  ⚠️  Se sobrescribirá el archivo existente')
+        
+        # Crear cliente y subir
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+        
+        # Configurar content type para Excel
+        content_settings = ContentSettings(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+        with open('FinancialMarketsBU.xlsx', 'rb') as data:
+            blob_client.upload_blob(data, overwrite=True, content_settings=content_settings)
+        
+        print(f'✓ Archivo subido exitosamente!')
+        print(f'  Nombre: {file_name}')
+        print(f'  URL: {blob_client.url}')
+        "
+
+    - name: Subir archivo Excel como artefacto (backup con timestamp)
+      uses: actions/upload-artifact@v4
+      with:
+        name: reporte-financiero-${{ github.run_number }}
+        path: FinancialMarketsBU.xlsx
