@@ -1,9 +1,9 @@
-name: Ejecutar scrapper semanal y subir a Azure (CON timestamp)
+name: Ejecutar scrapper semanal y subir a Azure (SIN timestamp)
 
 on:
   schedule:
-    # Viernes 14:40 Guatemala = 20:40 UTC
-    - cron: '35 20 * * 5'
+    # Ejecutar los viernes a las 14:40 hora de Guatemala (20:40 UTC) 
+    - cron: '30 20 * * 5'
   workflow_dispatch:
 
 jobs:
@@ -19,83 +19,63 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Instalar dependencias
+    - name: Configurar el entorno con Jupyter
       run: |
         python -m pip install --upgrade pip
+        pip install jupyter
+        python -m ipykernel install --user --name=python3 --display-name "Python 3"
+      
+    - name: Instalar dependencias
+      run: |
         pip install -r requirements.txt
-        pip install azure-storage-blob papermill
+        pip install azure-storage-blob
 
     - name: Ejecutar notebook
       run: |
-        papermill "Financial_Markets_&_Commodities_Scrapper_Weekly.ipynb" "salida.ipynb"
+        papermill "Financial_Markets_&_Commodities_Scrapper_Weekly.ipynb" "salida.ipynb" -k python3
 
-    - name: Subir archivo a Azure Blob Storage (versionado + archivo fijo)
+    - name: Subir archivo a Azure Blob Storage (nombre fijo)
       env:
         AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
       run: |
-        python - <<EOF
+        python -c "
         from azure.storage.blob import BlobServiceClient, ContentSettings
-        from datetime import datetime
         import os
-        import sys
         
+        # Configuración
         connection_string = os.environ['AZURE_STORAGE_CONNECTION_STRING']
         container_name = 'cabidataanalyticsdev'
         blob_folder = 'Data_Bases_Documents/Weekly'
         
-        # Timestamp UTC (recomendado para pipelines)
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        # NOMBRE FIJO - sin timestamp
+        file_name = 'FinancialMarketsBU.xlsx'
         
-        versioned_file_name = f'FinancialMarketsBU_{timestamp}.xlsx'
-        versioned_blob_name = f'{blob_folder}/{versioned_file_name}'
+        # Construir ruta completa
+        blob_name = f'{blob_folder}/{file_name}'
         
-        print(f'Subiendo archivo versionado: {versioned_blob_name}')
+        print(f'Subiendo archivo a Azure...')
+        print(f'  Contenedor: {container_name}')
+        print(f'  Ruta: {blob_name}')
+        print(f'  ⚠️  Se sobrescribirá el archivo existente')
         
+        # Crear cliente y subir
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+        
+        # Configurar content type para Excel
         content_settings = ContentSettings(
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
         
-        try:
-            # Subir archivo versionado (NO overwrite)
-            versioned_blob_client = blob_service_client.get_blob_client(
-                container=container_name,
-                blob=versioned_blob_name
-            )
-            
-            with open('FinancialMarketsBU.xlsx', 'rb') as data:
-                versioned_blob_client.upload_blob(
-                    data,
-                    overwrite=False,
-                    content_settings=content_settings
-                )
-            
-            print("✓ Archivo versionado subido correctamente")
-            print(f"URL: {versioned_blob_client.url}")
-            
-            # Actualizar archivo fijo (overwrite permitido)
-            fixed_blob_name = f'{blob_folder}/FinancialMarketsBU.xlsx'
-            fixed_blob_client = blob_service_client.get_blob_client(
-                container=container_name,
-                blob=fixed_blob_name
-            )
-            
-            with open('FinancialMarketsBU.xlsx', 'rb') as data:
-                fixed_blob_client.upload_blob(
-                    data,
-                    overwrite=True,
-                    content_settings=content_settings
-                )
-            
-            print("✓ Archivo oficial actualizado")
+        with open('FinancialMarketsBU.xlsx', 'rb') as data:
+            blob_client.upload_blob(data, overwrite=True, content_settings=content_settings)
         
-        except Exception as e:
-            print(f"❌ Error al subir archivo: {str(e)}")
-            sys.exit(1)
-        
-        EOF
+        print(f'✓ Archivo subido exitosamente!')
+        print(f'  Nombre: {file_name}')
+        print(f'  URL: {blob_client.url}')
+        "
 
-    - name: Subir archivo Excel como artefacto (backup)
+    - name: Subir archivo Excel como artefacto (backup con timestamp)
       uses: actions/upload-artifact@v4
       with:
         name: reporte-financiero-${{ github.run_number }}
