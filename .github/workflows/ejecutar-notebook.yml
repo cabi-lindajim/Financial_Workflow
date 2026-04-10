@@ -3,7 +3,7 @@ name: Ejecutar scrapper semanal y subir a Azure (SIN timestamp)
 on:
   schedule:
     # Ejecutar los viernes a las 14:40 hora de Guatemala (20:40 UTC) 
-    - cron: '30 20 * * 5'
+    - cron: '20 20 * * 5'
   workflow_dispatch:
 
 jobs:
